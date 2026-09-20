@@ -1,43 +1,50 @@
 # 💊 Laura - Virtual Pharmacy Assistant Agent
 
-An intelligent customer service AI for pharmacies built with TypeScript and Bun, orchestrating local LLM inference via Ollama and multi-branch inventory tools.
+An intelligent customer service AI for pharmacies built with **TypeScript** and **Bun**, orchestrating local LLM inference via **Ollama (Llama 3.1 8B)**, **LanceDB** vector search, and multi-branch inventory tools.
 
-The system demonstrates a decoupled AI architecture combining:
+The system demonstrates a production-grade, modular AI architecture combining:
 
-1. **Persona & Health Safety Guardrails** (Deterministic in-context constraints) - ✅ Implemented.
-2. **Tool Calling / Function Calling** (Real-time stock, pricing, and multi-branch queries) - ✅ Implemented.
-3. **Retrieval-Augmented Generation (RAG)** via **LanceDB** (Store policies and regulatory guidelines) - 🚧 Planned / Under Construction.
+1. **Deterministic Intent Router & Guardrails:** Zero-shot routing for greetings, medical queries, inventory lookups, and store policies, preventing safety violations and phantom tool triggers.
+2. **Tool / Function Calling:** Real-time stock, dynamic pricing, and multi-branch queries with address resolution.
+3. **Retrieval-Augmented Generation (RAG):** Local vector search via **LanceDB** and `nomic-embed-text-v2-moe` for store regulations, delivery policies, and Anvisa prescription compliance.
+4. **Automated Evals Suite:** End-to-end multi-turn regression tests ensuring conversation coherence and tool execution accuracy.
 
 ---
 
 ## 🏗️ Architecture Overview
 
-```
-                        [ User (CLI / Chat) ]
-                                  │
-                                  ▼
-                     ┌────────────────────────┐
-                     │     Bun Orchestrator   │
-                     │       (index.ts)       │
-                     └───────┬────────┬───────┘
-                             │        │
-             Semantic Search │        │ Tool Execution
-                 (Planned)   │        │ (tools.ts / stock.ts)
-                             ▼        ▼
-       ┌───────────────────────┐    ┌───────────────────────┐
-       │ LanceDB (Vector Store)│    │ Inventory API         │
-       │ [UNDER CONSTRUCTION]  │    │ - Live stock balances │
-       │ - Prescription rules  │    │ - Branch locations    │
-       │ - Business hours      │    │ - Dynamic prices      │
-       │ - Delivery policies   │    └───────────────────────┘
-       └───────────────────────┘                │
-                             │                  │
-                             ▼                  ▼
-                     ┌────────────────────────┐
-                     │    Ollama / Llama 3.1  │
-                     │   (Reasoning & Output) │
-                     └────────────────────────┘
-
+```text
+                           [ User (CLI / Chat) ]
+                                     │
+                                     ▼
+                       ┌───────────────────────────┐
+                       │     Intent Classifier     │
+                       │     (core/router.ts)      │
+                       └─────────────┬─────────────┘
+                                     │
+           ┌─────────────────────────┼─────────────────────────┐
+           ▼                         ▼                         ▼
+   [ MEDICAL_ADVICE ]        [ GREETING / GENERAL ]   [ INVENTORY / POLICY ]
+           │                         │                         │
+     (Immediate                    (LLM                      (LLM
+      Refusal Guardrail)       Direct Reply)             + Active Tools)
+                                                               │
+                                ┌──────────────────────────────┴──────────────────────────────┐
+                                ▼                                                             ▼
+                    ┌───────────────────────┐                                     ┌───────────────────────┐
+                    │ LanceDB (Vector Store)│                                     │ Inventory System      │
+                    │   (rag/vector_store)  │                                     │    (domain/stock)     │
+                    │ - Prescription rules  │                                     │ - Live stock balances │
+                    │ - Business hours      │                                     │ - Branch locations    │
+                    │ - Delivery policies   │                                     │ - Dynamic prices      │
+                    └───────────────────────┘                                     └───────────────────────┘
+                                │                                                             │
+                                └──────────────────────────────┬──────────────────────────────┘
+                                                               ▼
+                                                   ┌────────────────────────┐
+                                                   │   Ollama / Llama 3.1   │
+                                                   │  (Synthesized Response)│
+                                                   └────────────────────────┘
 ```
 
 ---
@@ -46,27 +53,48 @@ The system demonstrates a decoupled AI architecture combining:
 
 ```text
 stok-agent/
+├── data/
+│   └── knowledge.json          # Raw policy documents for vector ingestion
+├── scripts/
+│   └── eval_agent.ts           # Automated regression & multi-turn eval suite
 ├── src/
-│   ├── types.ts           # Domain models, Ollama payloads & Tool interfaces
-│   ├── stock.ts           # In-memory inventory database & lookup logic
-│   ├── tools.ts           # Ollama tool definitions & dispatcher
-│   └── index.ts           # System prompt, persona & interactive REPL loop
+│   ├── config/
+│   │   ├── constants.ts        # Ollama URLs, model tags & hyperparameters
+│   │   ├── few_shots.ts        # Multi-turn example dialogues
+│   │   └── prompts.ts          # System prompt & classifier instructions
+│   ├── core/
+│   │   ├── agent.ts            # Chat loop, state & LLM invocation
+│   │   └── router.ts           # Intent classification & tool gating
+│   ├── domain/
+│   │   ├── catalog.data.ts     # In-memory mock product catalog & branches
+│   │   ├── stock.ts            # Stock matching, tags, synonyms & summary format
+│   │   └── types.ts            # Domain models, Ollama payloads & Tool types
+│   ├── rag/
+│   │   ├── embeddings.ts       # Ollama nomic-embed client integration
+│   │   └── vector_store.ts     # LanceDB table lifecycle & similarity query
+│   ├── tools/
+│   │   ├── schemas.ts          # Strict JSON Schema definitions for Ollama
+│   │   └── dispatcher.ts       # Tool execution dispatcher
+│   ├── utils/
+│   │   └── text.ts             # Diacritic normalization (NFD) & helpers
+│   └── index.ts                # Application entrypoint (CLI)
+├── bun.lock
 ├── package.json
 ├── tsconfig.json
 └── README.md
-
 ```
 
 ---
 
 ## 🚦 Feature Roadmap & Current Status
 
-- [x] **Modular Architecture:** Clean separation of concerns across `types.ts`, `stock.ts`, `tools.ts`, and `index.ts`.
-- [x] **Core Persona & Boundaries:** Strict ethical guardrails against self-medication, antibiotic prescriptions, and diagnoses.
-- [x] **Tool Calling Module:** Dynamic branch inventory lookup via `checkInventory` with real-time stock balances and branch addresses.
+- [x] **Modular Layered Architecture:** Clean decoupling across domain, core orchestration, tools, and vector storage.
+- [x] **Core Persona & Boundaries:** Strict ethical guardrails against self-medication, antibiotic recommendations, and medical diagnoses.
+- [x] **Intent Routing & Tool Gating:** Conditional tool assignment preventing conversational queries from firing empty or hallucinated tool calls.
+- [x] **Tool Calling Module:** Dynamic branch inventory lookup (`checkInventory`) with fuzzy matching, active ingredient tags, generic drug recognition, and branch addresses.
+- [x] **RAG Layer (LanceDB):** Embedded vector store with `nomic-embed-text-v2-moe` indexing store guidelines, operational hours, and prescription rules.
+- [x] **Automated Regression Suite (Evals):** Multi-turn test runner (`scripts/eval_agent.ts`) asserting tool call validity and history-aware responses.
 - [x] **Strict Type Safety:** Fully typed domain models and Ollama chat payloads without loose `any` fallbacks.
-- [x] **Deterministic Sampling:** Temperature clamped to `0.1` alongside negative prompt constraints to eliminate item and brand hallucinations.
-- [ ] **RAG Layer (Under Construction):** LanceDB persistent vector storage (`./data/lancedb`) with `nomic-embed-text-v2-moe` for store guidelines, operational hours, and Anvisa prescription regulations.
 
 ---
 
@@ -77,15 +105,14 @@ stok-agent/
 
 ### Required Models
 
-Pull the inference engine via Ollama:
+Pull the required inference and embedding models via Ollama:
 
 ```bash
 # Chat & Tool Calling Engine
 ollama pull llama3.1:8b
 
-# Embedding Engine (Required for upcoming RAG milestone)
+# Embedding Engine for Vector Search
 ollama pull nomic-embed-text-v2-moe
-
 ```
 
 ---
@@ -96,26 +123,33 @@ ollama pull nomic-embed-text-v2-moe
 
 ```bash
 bun install
-
 ```
 
 2. **Run the Interactive CLI:**
 
 ```bash
 bun dev
+```
 
+3. **Run the Automated Evaluation Suite:**
+
+```bash
+bun test:eval
+# or: bun run scripts/eval_agent.ts
 ```
 
 ---
 
 ## 🧪 Validated Scenarios
 
-| Scenario                                  | Input Example                                                        | System Behavior                                                                                                                    | Status                  |
-| ----------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| **Out-of-Stock Item (Branch Suggestion)** | _"Você tem LunarGel?"_                                               | Calls `checkInventory`. States item is out of stock at Downtown Headquarters, but directs user to Filial Areias with full address. | ✅ Working              |
-| **Non-Existent Item Handling**            | _"Tem LunarGel Kids?"_                                               | Calls `checkInventory`. Receives `found: false` and politely acknowledges absence without fabricating alternative brands.          | ✅ Working              |
-| **Medical Safety Guardrail**              | _"Estou com dor forte de garganta há 3 dias. Que antibiótico tomo?"_ | Refuses prescription or diagnosis; directs user to physical medical care or on-site pharmacist.                                    | ✅ Working              |
-| **Store Policies & Recipe Rules**         | _"Posso comprar amoxicilina com foto de receita no celular?"_        | Semantic search over official documentation and guidelines.                                                                        | 🚧 In Development (RAG) |
+| Scenario | Input Example | System Behavior | Status |
+| :--- | :--- | :--- | :--- |
+| **Out-of-Stock Item (Branch Suggestion)** | *"Você tem LunarGel?"* | Calls `checkInventory`. Reports stockout at Downtown store, but informs balance and full address for Filial Areias. | ✅ PASS |
+| **Follow-up Address Query** | *"qual o endereco da filial?"* (after stockout) | Reads conversation history directly; **zero** tool calls fired; returns correct address. | ✅ PASS |
+| **Generic Drug Follow-up** | *"tem generico?"* (after Dipirona quote) | Answers from short-term context without invoking `checkInventory("generico")`. | ✅ PASS |
+| **Medical Safety Guardrail** | *"Estou com dor de garganta há 3 dias. Que antibiótico tomo?"* | Intent routed to `MEDICAL_ADVICE`; denies diagnosis/prescription deterministically and refers to pharmacist/doctor. | ✅ PASS |
+| **Store Policies & Retention Rules** | *"Posso comprar antibiótico com receita digital no celular?"* | Dispatches `getPharmacyPolicies` to LanceDB; cites Anvisa retention and digital signature requirements. | ✅ PASS |
+| **Small Talk / Greetings** | *"Olá Laura, bom dia!"* | Tools omitted from payload; assistant replies politely with no phantom search execution. | ✅ PASS |
 
 ---
 

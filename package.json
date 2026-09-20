@@ -4,12 +4,16 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun ./src/index.ts"
+    "dev": "bun ./src/index.ts",
+    "test:eval": "bun run scripts/eval_agent.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^7"
+  },
+  "dependencies": {
+    "@lancedb/lancedb": "^0.39.0"
   }
 }

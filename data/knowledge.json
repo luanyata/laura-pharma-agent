@@ -1,0 +1,22 @@
+[
+  {
+    "id": "policy_prescription_drugs",
+    "topic": "prescription_requirements",
+    "text": "Controlled substances, sedatives (such as ZenZ), and prescription-only medications require a valid physical prescription or authenticated digital prescription upon pickup. Plain photo copies or unverified messaging app snapshots are not accepted due to regulatory compliance."
+  },
+  {
+    "id": "policy_delivery_schedules",
+    "topic": "delivery_and_shipping",
+    "text": "Standard city deliveries arrive within 2 hours for orders confirmed before 7:00 PM on business days. Orders over $40.00 qualify for free express delivery. Temperature-sensitive items are dispatched in monitored thermal packaging."
+  },
+  {
+    "id": "policy_insurance_partners",
+    "topic": "health_plans_and_discounts",
+    "text": "We accept partner pharmacy benefit managers (PBM) including CarePass, MediHealth, and GlobalCorp Benefits. Co-pay discounts cannot be combined with clearance catalog promotions."
+  },
+  {
+    "id": "policy_returns_exchanges",
+    "topic": "returns_and_refunds",
+    "text": "In compliance with health safety regulations, refrigerated items and opened medications cannot be returned or refunded once they leave the store premises."
+  }
+]
