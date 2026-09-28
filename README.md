@@ -14,143 +14,47 @@ The system demonstrates a production-grade, modular AI architecture combining:
 
 ## 🏗️ Architecture Overview
 
-### Visual System Flow (Interactive Diagram)
-
-```mermaid
-flowchart TD
-    subgraph CLIENT["🖥️ Client & Execution Context"]
-        USER["👤 User (CLI / Chat Interface)"]
-        AGENT_SESSION["🤖 AgentSession (src/core/agent.ts)<br/>• Session ID & User ID Isolation<br/>• Multi-turn Conversation Memory"]
-        USER -->|"User Message"| AGENT_SESSION
-    end
-
-    subgraph TELEMETRY["📊 Langfuse Observability (OpenTelemetry v5)"]
-        TRACE_ROOT["🏷️ [AGENT] pharmacy-agent-turn (Root Trace)"]
-        GEN_ROUTER["⚡ [GENERATION] classify-intent"]
-        GUARD_OBS["🛡️ [GUARDRAIL] medical-safety-guardrail"]
-        GEN_DIRECT["💬 [GENERATION] generate-direct-response"]
-        GEN_TOOL["🧠 [GENERATION] reason-and-select-tool"]
-        TOOL_INV["📦 [TOOL] check-inventory"]
-        TOOL_RAG["📚 [TOOL] get-pharmacy-policies"]
-        RETRIEVER_OBS["🔍 [RETRIEVER] retrieve-pharmacy-policies"]
-        EMBED_OBS["📐 [EMBEDDING] generate-embedding"]
-        GEN_SYNTH["📝 [GENERATION] synthesize-response"]
-    end
-
-    AGENT_SESSION -.->|"Telemetry Context"| TRACE_ROOT
-
-    subgraph ROUTING["🧭 Intent Routing & Ethical Guardrails"]
-        ROUTER["Intent Classifier (src/core/router.ts)<br/>Structured Zero-Shot Classification"]
-        ROUTER -.-> GEN_ROUTER
-    end
-
-    AGENT_SESSION -->|"Classify Query"| ROUTER
-
-    ROUTER -->|"MEDICAL_ADVICE"| REFUSAL["🚫 Immediate Ethical Refusal<br/>• Recommends Pharmacist / Doctor<br/>• Strictly prevents self-medication"]
-    REFUSAL -.-> GUARD_OBS
-    REFUSAL -->|"Safe Guidance"| FINAL_OUT["💬 Final Response to User"]
-
-    ROUTER -->|"GREETING / GENERAL"| OLLAMA_DIRECT["🦙 Ollama (Llama 3.1 8B)<br/>Direct conversational response"]
-    OLLAMA_DIRECT -.-> GEN_DIRECT
-    OLLAMA_DIRECT -->|"Polite Reply"| FINAL_OUT
-
-    ROUTER -->|"PRODUCT_SEARCH / POLICY_INQUIRY"| OLLAMA_TOOL_SELECT["🦙 Ollama (Llama 3.1 8B)<br/>Tool Calling & Selection Engine"]
-    OLLAMA_TOOL_SELECT -.-> GEN_TOOL
-
-    subgraph DOMAIN_SERVICES["🛠️ Domain Services & Knowledge Base"]
-        direction TB
-        subgraph INVENTORY["🏬 Inventory & Stock System (domain/stock.ts)"]
-            STOCK_ENGINE["Stock Matching & Synonym Resolution<br/>• Real-time balances: Centro & Areias<br/>• Active ingredient & generic recognition<br/>• Branch addresses & dynamic pricing"]
-        end
-
-        subgraph RAG_LAYER["📖 Local RAG System (rag/vector_store.ts)"]
-            EMBED_ENGINE["nomic-embed-text-v2-moe<br/>768-dim query embedding"]
-            LANCEDB["LanceDB Vector Table<br/>• Anvisa prescription retention rules<br/>• Digital signature & delivery policies"]
-            EMBED_ENGINE -->|"Vector Search"| LANCEDB
-        end
-    end
-
-    OLLAMA_TOOL_SELECT -->|"Execute checkInventory"| STOCK_ENGINE
-    STOCK_ENGINE -.-> TOOL_INV
-    STOCK_ENGINE -->|"Inventory JSON"| OLLAMA_SYNTH
-
-    OLLAMA_TOOL_SELECT -->|"Execute getPharmacyPolicies"| RAG_LAYER
-    RAG_LAYER -.-> TOOL_RAG
-    EMBED_ENGINE -.-> EMBED_OBS
-    LANCEDB -.-> RETRIEVER_OBS
-    LANCEDB -->|"Retrieved Context"| OLLAMA_SYNTH
-
-    subgraph SYNTHESIS["✨ Final Response Synthesis"]
-        OLLAMA_SYNTH["🦙 Ollama (Llama 3.1 8B)<br/>Grounded Assistant Response"]
-        OLLAMA_SYNTH -.-> GEN_SYNTH
-    end
-
-    OLLAMA_SYNTH -->|"Coherent Answer"| FINAL_OUT
-```
-
-### Detailed Component Map
-
 ```text
-                        [ 👤 User / CLI ]
-                                │
-                                ▼
-                 ┌─────────────────────────────┐
-                 │ 🤖 AgentSession (Turn Root) │ ──► [Langfuse: AGENT]
-                 │      (src/core/agent.ts)    │
-                 └──────────────┬──────────────┘
-                                │
-                                ▼
-                 ┌─────────────────────────────┐
-                 │  🧭 Intent Classification   │ ──► [Langfuse: GENERATION]
-                 │     (src/core/router.ts)    │
-                 └──────────────┬──────────────┘
-                                │
-       ┌────────────────────────┼────────────────────────┐
-       │                        │                        │
-       ▼                        ▼                        ▼
-┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-│MEDICAL_ADVICE│         │  GREETING /  │         │PRODUCT_SEARCH│
-│Refusal Guard │         │   GENERAL    │         │POLICY_INQUIRY│
-└──────┬───────┘         └──────┬───────┘         └──────┬───────┘
-       │                        │                        │
-       ▼                        ▼                        ▼
-[Langfuse: GUARDRAIL]  [Langfuse: GENERATION]   [Langfuse: GENERATION]
-(medical-guardrail)    (direct-response)        (reason-and-select)
-       │                        │                        │
-       │                        │                        ▼
-       │                        │               ┌─────────────────┐
-       │                        │               │ 🛠️ Dispatcher   │
-       │                        │               └────┬───────┬────┘
-       │                        │                    │       │
-       │                        │         ┌──────────┘       └──────────┐
-       │                        │         ▼                             ▼
-       │                        │  ┌──────────────┐              ┌──────────────┐
-       │                        │  │ 🏬 Inventory │              │  📖 LanceDB  │
-       │                        │  │(domain/stock)│              │  (RAG Store) │
-       │                        │  └──────┬───────┘              └──────┬───────┘
-       │                        │         │                             │
-       │                        │         ▼                             ▼
-       │                        │  [Langfuse: TOOL]              [Langfuse: TOOL
-       │                        │  (checkInventory)              RETRIEVER+EMBED]
-       │                        │         │                             │
-       │                        │         └──────────────┬──────────────┘
-       │                        │                        │
-       │                        │                        ▼
-       │                        │               ┌─────────────────┐
-       │                        │               │🦙 Ollama Llama  │
-       │                        │               │Response Synth   │
-       │                        │               └────────┬────────┘
-       │                        │                        │
-       │                        │                        ▼
-       │                        │               [Langfuse: GENERATION]
-       │                        │               (synthesize-response)
-       │                        │                        │
-       └────────────────────────┼────────────────────────┘
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │ 💬 Final User Reply   │
-                    └───────────────────────┘
+                           [ User (CLI / Chat) ]
+                                     │
+                                     ▼
+                       ┌───────────────────────────┐
+                       │     Intent Classifier     │ ────► [Langfuse: GENERATION]
+                       │     (core/router.ts)      │
+                       └─────────────┬─────────────┘
+                                     │
+           ┌─────────────────────────┼─────────────────────────┐
+           ▼                         ▼                         ▼
+   [ MEDICAL_ADVICE ]        [ GREETING / GENERAL ]   [ INVENTORY / POLICY ]
+           │                         │                         │
+     (Immediate                    (LLM                      (LLM
+      Refusal Guardrail)       Direct Reply)             + Active Tools)
+           │                         │                         │
+           ▼                         ▼                         ▼
+ [Langfuse: GUARDRAIL]     [Langfuse: GENERATION]    [Langfuse: GENERATION]
+                                                               │
+                                ┌──────────────────────────────┴──────────────────────────────┐
+                                ▼                                                             ▼
+                    ┌───────────────────────┐                                     ┌───────────────────────┐
+                    │ LanceDB (Vector Store)│                                     │ Inventory System      │
+                    │   (rag/vector_store)  │                                     │    (domain/stock)     │
+                    │ - Prescription rules  │                                     │ - Live stock balances │
+                    │ - Business hours      │                                     │ - Branch locations    │
+                    │ - Delivery policies   │                                     │ - Dynamic prices      │
+                    └───────────────────────┘                                     └───────────────────────┘
+                                │                                                             │
+                    [Langfuse: RETRIEVER +                                            [Langfuse: TOOL]
+                       EMBEDDING]                                                             │
+                                │                                                             │
+                                └──────────────────────────────┬──────────────────────────────┘
+                                                               ▼
+                                                   ┌────────────────────────┐
+                                                   │   Ollama / Llama 3.1   │ ────► [Langfuse: GENERATION]
+                                                   │  (Synthesized Response)│
+                                                   └────────────────────────┘
+                                                               │
+                                                               ▼
+                                                 [Langfuse: AGENT (Root Trace)]
 ```
 
 ---
