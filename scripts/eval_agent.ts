@@ -1,5 +1,9 @@
+import { initTracing, shutdownTracing } from "../src/config/instrumentation";
 import { AgentSession } from "../src/core/agent";
 import { initKnowledgeBase } from "../src/rag/vector_store";
+
+// Inicializa a instrumentação OpenTelemetry / Langfuse
+initTracing();
 
 interface TestStepResult {
   step: string;
@@ -33,8 +37,13 @@ function logAssertion(description: string, passed: boolean, info?: string) {
 
 async function runScenario1(): Promise<boolean> {
   logHeader("Cenário 1: Consulta de estoque de filial e pergunta de endereço");
-  const session = new AgentSession();
+  const session = new AgentSession(
+    undefined,
+    `eval_scenario_1_${Date.now()}`,
+    "eval-runner",
+  );
   let scenarioPassed = true;
+
 
   // Turno 1
   console.log(`\n${BOLD}Turno 1:${RESET} "Tem pomada cicatrizante?"`);
@@ -116,7 +125,11 @@ async function runScenario1(): Promise<boolean> {
 
 async function runScenario2(): Promise<boolean> {
   logHeader("Cenário 2: Pergunta sobre genérico após cotação");
-  const session = new AgentSession();
+  const session = new AgentSession(
+    undefined,
+    `eval_scenario_2_${Date.now()}`,
+    "eval-runner",
+  );
   let scenarioPassed = true;
 
   // Turno 1
@@ -168,16 +181,24 @@ async function runScenario2(): Promise<boolean> {
 }
 
 async function main() {
-  console.log(`${BOLD}Iniciando suíte de testes de avaliação (Evals)...${RESET}`);
-  await initKnowledgeBase();
+  let s1Passed = false;
+  let s2Passed = false;
 
-  const s1Passed = await runScenario1();
-  const s2Passed = await runScenario2();
+  try {
+    console.log(`${BOLD}Iniciando suíte de testes de avaliação (Evals)...${RESET}`);
+    await initKnowledgeBase();
 
-  console.log(`\n${BOLD}================ RESUMO FINAL =================${RESET}`);
-  console.log(`Cenário 1 (Estoque filial e endereço): ${s1Passed ? `${GREEN}APROVADO (PASS)${RESET}` : `${RED}FALHOU (FAIL)${RESET}`}`);
-  console.log(`Cenário 2 (Perguntas sobre genérico):  ${s2Passed ? `${GREEN}APROVADO (PASS)${RESET}` : `${RED}FALHOU (FAIL)${RESET}`}`);
-  console.log(`${BOLD}===============================================${RESET}\n`);
+    s1Passed = await runScenario1();
+    s2Passed = await runScenario2();
+
+    console.log(`\n${BOLD}================ RESUMO FINAL =================${RESET}`);
+    console.log(`Cenário 1 (Estoque filial e endereço): ${s1Passed ? `${GREEN}APROVADO (PASS)${RESET}` : `${RED}FALHOU (FAIL)${RESET}`}`);
+    console.log(`Cenário 2 (Perguntas sobre genérico):  ${s2Passed ? `${GREEN}APROVADO (PASS)${RESET}` : `${RED}FALHOU (FAIL)${RESET}`}`);
+    console.log(`${BOLD}===============================================${RESET}\n`);
+  } finally {
+    console.log(`${BOLD}Finalizando e enviando traces para o Langfuse...${RESET}`);
+    await shutdownTracing();
+  }
 
   if (!s1Passed || !s2Passed) {
     process.exit(1);
@@ -186,7 +207,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("Erro fatal na execução dos testes:", err);
+  await shutdownTracing();
   process.exit(1);
 });
+

@@ -1,3 +1,4 @@
+import { startActiveObservation } from "@langfuse/tracing";
 import { CHAT_MODEL, OLLAMA_URL, TEMPERATURES } from "../config/constants";
 import { ROUTER_PROMPT } from "../config/prompts";
 import type { OllamaChatResponse } from "../domain/types";
@@ -17,29 +18,76 @@ export interface IntentClassification {
 export async function classifyIntent(
   userInput: string,
 ): Promise<IntentClassification> {
-  try {
-    const response = await fetch(OLLAMA_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+  return await startActiveObservation(
+    "classify-intent",
+    async (span) => {
+      const messages = [
+        { role: "system", content: ROUTER_PROMPT },
+        { role: "user", content: userInput },
+      ];
+
+      span.update({
         model: CHAT_MODEL,
-        messages: [
-          { role: "system", content: ROUTER_PROMPT },
-          { role: "user", content: userInput },
-        ],
-        format: "json",
-        stream: false,
-        options: { temperature: TEMPERATURES.ROUTER },
-      }),
-    });
+        modelParameters: {
+          temperature: TEMPERATURES.ROUTER,
+          format: "json",
+        },
+        input: messages,
+      });
 
-    if (!response.ok) {
-      return { intent: "GENERAL", entity: null };
-    }
+      try {
+        const response = await fetch(OLLAMA_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: CHAT_MODEL,
+            messages,
+            format: "json",
+            stream: false,
+            options: { temperature: TEMPERATURES.ROUTER },
+          }),
+        });
 
-    const payload = (await response.json()) as OllamaChatResponse;
-    return JSON.parse(payload.message.content ?? "{}") as IntentClassification;
-  } catch {
-    return { intent: "GENERAL", entity: null };
-  }
+        if (!response.ok) {
+          const fallback: IntentClassification = { intent: "GENERAL", entity: null };
+          span.update({
+            output: fallback,
+            metadata: { error: `HTTP ${response.status} ${response.statusText}` },
+          });
+          return fallback;
+        }
+
+        const payload = (await response.json()) as OllamaChatResponse;
+        const parsed = JSON.parse(
+          payload.message.content ?? "{}",
+        ) as IntentClassification;
+
+        const usageDetails =
+          payload.prompt_eval_count !== undefined && payload.eval_count !== undefined
+            ? {
+                input: payload.prompt_eval_count,
+                output: payload.eval_count,
+                total: payload.prompt_eval_count + payload.eval_count,
+              }
+            : undefined;
+
+        span.update({
+          output: parsed,
+          ...(usageDetails ? { usageDetails } : {}),
+        });
+
+
+        return parsed;
+      } catch (err) {
+        const fallback: IntentClassification = { intent: "GENERAL", entity: null };
+        span.update({
+          output: fallback,
+          metadata: { error: String(err) },
+        });
+        return fallback;
+      }
+    },
+    { asType: "generation" },
+  );
 }
+

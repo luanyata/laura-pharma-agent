@@ -59,5 +59,14 @@ export interface ChatMessage {
 }
 
 export interface OllamaChatResponse {
+  model?: string;
+  created_at?: string;
   message: ChatMessage;
+  done?: boolean;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_duration?: number;
+  eval_duration?: number;
 }
